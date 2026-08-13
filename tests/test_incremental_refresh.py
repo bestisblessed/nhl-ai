@@ -1,11 +1,15 @@
 from datetime import date
+from pathlib import Path
 
+import pytest
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+import ingestion.pipeline as pipeline
 from config import Settings
-from ingestion.pipeline import _finish_run, _start_run, refresh_window, season_for_date
+from ingestion.pipeline import _finish_run, _start_run, backfill, refresh_window, season_for_date
 from storage.db import create_schema, make_engine
-from storage.models import PipelineRun
+from storage.models import PipelineRun, Season
 
 
 def test_normal_daily_window_is_d1_through_d3():
@@ -58,3 +62,58 @@ def test_pipeline_run_failure_is_persisted_for_status_api(tmp_path):
         assert run.status == "failed"
         assert run.completed_at is not None
         assert run.error == "upstream unavailable"
+
+
+def test_offline_seed_backfill_records_a_successful_pipeline_run(tmp_path):
+    settings = Settings(
+        seed_csv_path=Path(__file__).parents[1] / "data" / "data_dump.csv",
+        database_url=f"sqlite:///{tmp_path / 'backfill.db'}",
+    )
+    backfill(settings, offline_seed_only=True)
+
+    engine = make_engine(settings)
+    with Session(engine) as session:
+        run = session.scalar(select(PipelineRun).where(PipelineRun.command == "backfill"))
+        assert run is not None
+        assert run.status == "succeeded"
+
+
+def test_partial_backfill_failure_does_not_look_initialized(tmp_path, monkeypatch):
+    """A backfill that dies after seeding must not be mistaken for a completed one.
+
+    ``register_seasons`` writes ``seasons`` rows for every configured season
+    before any historical season is actually fetched, so a bootstrap check
+    that only asks "does the seasons table have a row" would treat this
+    partial, failed run as fully initialized and never retry the seasons
+    that were never processed. The bootstrap check must instead require a
+    successful ``backfill`` pipeline run.
+    """
+
+    settings = Settings(
+        seed_csv_path=Path(__file__).parents[1] / "data" / "data_dump.csv",
+        database_url=f"sqlite:///{tmp_path / 'partial.db'}",
+    )
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated NHL API outage")
+
+    monkeypatch.setattr(pipeline, "fetch_team_abbreviations", _boom)
+
+    with pytest.raises(RuntimeError, match="simulated NHL API outage"):
+        backfill(settings)
+
+    engine = make_engine(settings)
+    with Session(engine) as session:
+        assert session.scalar(select(Season)) is not None, (
+            "seasons rows already exist after the partial failure, which is exactly "
+            "why checking for their mere existence is not a safe readiness signal"
+        )
+        run = session.scalar(select(PipelineRun).where(PipelineRun.command == "backfill"))
+        assert run is not None
+        assert run.status == "failed"
+
+    with engine.connect() as connection:
+        succeeded = connection.execute(
+            text("SELECT 1 FROM pipeline_runs WHERE command = 'backfill' AND status = 'succeeded' LIMIT 1")
+        ).first()
+    assert succeeded is None
