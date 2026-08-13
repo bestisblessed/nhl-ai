@@ -1,6 +1,6 @@
 # NHL Take-Home Pipeline
 
-This implementation keeps every contiguous regular season from the supplied 2022-23 seed through the configured 2026-27 target. NHL JSON is the primary source; Hockey Reference remains optional reconciliation.
+This implementation keeps every contiguous regular season from the supplied 2022-23 seed through the configured 2026-27 target. NHL JSON is the primary source.
 
 ## Run locally
 
@@ -88,4 +88,186 @@ flowchart LR
   Cron[Daily refresh] --> API
 ```
 
-Docker Compose provides PostgreSQL and the FastAPI service. No commit or remote publication is performed by this worktree task.
+Docker Compose provides PostgreSQL and the FastAPI service.
+
+## Database schema design
+
+The schema separates stable entities, season aggregates, game facts, mutable daily snapshots, and operational metadata. NHL player and game IDs are retained as source identifiers. Composite primary keys make imports and refreshes idempotent.
+
+| Table | Grain and key | Purpose |
+|---|---|---|
+| `seasons` | One row per `(season_id, game_type_id)` | Tracks contiguous season coverage and ingestion state |
+| `players` | One row per `player_id` | Stores stable player identity and current attributes |
+| `player_season_stats` | One row per `(player_id, season_id, game_type_id)` | Stores season totals used by player leaderboards |
+| `games` | One row per `game_id` | Stores canonical schedule, status, teams, venue, and score |
+| `player_game_stats` | One row per `(game_id, player_id, team_id)` | Stores player game facts used by incremental correction runs |
+| `team_game_stats` | One row per `(game_id, team_id)` | Stores each team's goals, shots, opponent, and result for a game |
+| `team_season_stats` | One row per `(season_id, team_id, game_type_id)` | Stores current team-season aggregates |
+| `standings_snapshots` | One row per `(season_id, game_type_id, snapshot_date, team_id)` | Preserves dated standings |
+| `roster_snapshots` | One row per `(snapshot_date, team_id, player_id)` | Preserves dated active rosters |
+| `pipeline_runs` | One row per `run_id` | Records refresh status, timing, counts, and errors |
+
+`player_season_stats` and `player_game_stats` reference `players`; `team_game_stats` and `player_game_stats` reference `games`; and `roster_snapshots` references `players`. Team IDs come directly from NHL data and are repeated with abbreviations in fact tables so analyst responses remain simple and auditable.
+
+## API endpoints and examples
+
+Start the stack, then query `http://localhost:8000`. Interactive OpenAPI documentation is available at `http://localhost:8000/docs`. Season IDs use the NHL `YYYYZZZZ` form, such as `20222023`.
+
+### `GET /health`
+
+Checks database connectivity.
+
+```bash
+curl http://localhost:8000/health
+```
+
+```json
+{"status":"ok","database":"reachable"}
+```
+
+### `GET /players/most-goals`
+
+Returns the top goal scorers for a season. Parameters: `season_id` (default `20222023`) and `limit` (1-100, default `1`).
+
+```bash
+curl 'http://localhost:8000/players/most-goals?season_id=20222023&limit=3'
+```
+
+```json
+[
+  {"player_id":8478402,"name":"Connor McDavid","goals":64,"games_played":82},
+  {"player_id":8477956,"name":"David Pastrnak","goals":61,"games_played":82},
+  {"player_id":8478420,"name":"Mikko Rantanen","goals":55,"games_played":82}
+]
+```
+
+### `GET /players/penalties-per-minute`
+
+Ranks players by penalty minutes divided by total time on ice. Parameters: `season_id`, `min_games`, and `limit`. Players without positive time on ice are excluded.
+
+```bash
+curl 'http://localhost:8000/players/penalties-per-minute?season_id=20222023&limit=2'
+```
+
+```json
+[
+  {"player_id":8474190,"name":"Wayne Simmonds","pim":49,"total_toi_minutes":134.08,"pim_per_minute":0.3654},
+  {"player_id":8482157,"name":"Will Cuylle","pim":10,"total_toi_minutes":27.83,"pim_per_minute":0.3593}
+]
+```
+
+### `GET /players/leaderboard`
+
+Returns a player leaderboard for `points`, `assists`, or `shooting_pct`. Parameters: `season_id`, `metric`, `min_games`, and `limit`.
+
+```bash
+curl 'http://localhost:8000/players/leaderboard?season_id=20222023&metric=points&limit=2'
+```
+
+```json
+[
+  {"player_id":8478402,"name":"Connor McDavid","season_id":20222023,"games_played":82,"points":153},
+  {"player_id":8479318,"name":"Leon Draisaitl","season_id":20222023,"games_played":80,"points":128}
+]
+```
+
+### `GET /teams/rankings`
+
+Ranks teams by summed game-level `goals` or `shots`. Parameters: `season_id`, `metric`, and `limit`. Team game rows are populated by the NHL backfill rather than the supplied player-only CSV.
+
+```bash
+curl 'http://localhost:8000/teams/rankings?season_id=20222023&metric=goals&limit=2'
+```
+
+```json
+[
+  {"team_id":10,"team":"TOR","goals":297},
+  {"team_id":22,"team":"EDM","goals":285}
+]
+```
+
+### `GET /standings`
+
+Returns the latest stored standings snapshot for a season.
+
+```bash
+curl 'http://localhost:8000/standings?season_id=20262027'
+```
+
+```json
+[
+  {"season_id":20262027,"snapshot_date":"2026-08-13","rank":1,"team_id":14,"team":"TBL","games_played":0,"wins":0,"losses":0,"overtime_losses":0,"points":0,"goals_for":0,"goals_against":0}
+]
+```
+
+### `GET /players/multi-team`
+
+Returns players whose season record contains more than one team and reports the implied number of changes.
+
+```bash
+curl 'http://localhost:8000/players/multi-team?season_id=20222023'
+```
+
+```json
+[
+  {"player_id":8478569,"name":"Noel Acciari","teams":["STL","TOR"],"team_count":2,"team_changes":1},
+  {"player_id":8479315,"name":"Joey Anderson","teams":["CHI","TOR"],"team_count":2,"team_changes":1}
+]
+```
+
+### `GET /rosters/current/{team_abbrev}`
+
+Returns the latest active roster snapshot for a case-insensitive team abbreviation. Roster snapshots are populated by `refresh`.
+
+```bash
+curl http://localhost:8000/rosters/current/TBL
+```
+
+```json
+[
+  {"player_id":8478519,"team":"TBL","position":"C","snapshot_date":"2026-08-13"}
+]
+```
+
+### `GET /pipeline/status`
+
+Returns the latest incremental refresh status and its row counts. Before the first refresh it returns `{"status":"never_run"}`.
+
+```bash
+curl http://localhost:8000/pipeline/status
+```
+
+```json
+{
+  "run_id":"b6e...-...",
+  "status":"succeeded",
+  "command":"refresh",
+  "started_at":"2026-08-13T10:17:03+00:00",
+  "completed_at":"2026-08-13T10:17:41+00:00",
+  "seasons":[20262027],
+  "row_counts":{"games":4,"player_game_stats":210,"team_game_stats":8,"player_season_stats":900,"team_season_stats":32,"standings_snapshots":32,"roster_snapshots":736},
+  "error":null
+}
+```
+
+## Struggles and tradeoffs
+
+- The supplied CSV contains player-season aggregates but no game-level team facts. I preserved that file as the reproducible offline seed and used NHL team game reports for accurate team goals and shots rankings.
+- NHL sources expose related datasets through different endpoints and shapes. I normalized them behind one HTTP client and explicit record parsers, then validated pagination and expected totals before persistence.
+- Current rosters and standings are mutable. Dated snapshot tables preserve what the pipeline observed while keeping the analyst endpoints simple.
+- A daily job must tolerate corrections and missed runs without rebuilding all history. The refresh overlaps recent dates, extends its recovery window after a missed run, caps that recovery, and uses idempotent keys.
+- The upcoming configured season can legitimately be empty before regular-season games exist. Validation permits that state but treats an empty response after final games exist as a failure.
+
+## Estimated time spent
+
+Approximately 15 hours, including data exploration, implementation, Docker and managed PostgreSQL setup, testing, documentation, and verification.
+
+## AI usage disclosure
+
+I used OpenAI Codex as a coding assistant for repository exploration, implementation suggestions, test generation, debugging, documentation drafting, and command-line verification.
+
+- **Accepted:** focused suggestions for separating ingestion, persistence, and API responsibilities; adding idempotent composite keys; validating pagination; and testing the seed-to-API vertical slice. These matched the assignment's reproducibility and robustness goals.
+- **Modified:** generated code and documentation were adjusted to the actual NHL payloads, supplied CSV semantics, existing module boundaries, PostgreSQL configuration, and observed endpoint results. I kept the final design narrower than several broader architectural suggestions.
+- **Rejected:** speculative abstractions, unrelated refactors, unsupported data-source fallbacks, and features that did not directly help answer the analyst questions. I also independently ran the test suite, Docker checks, and live data checks rather than treating generated output as proof.
+
+All final implementation decisions, validation results, and submitted content were reviewed by me.
