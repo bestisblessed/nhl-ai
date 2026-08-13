@@ -11,7 +11,7 @@ uvicorn api.routes:app --reload
 python -m pytest
 ```
 
-The offline command proves the required seed-to-database path without network access. A full `backfill` loads 2023-24 through the configured target using NHL Stats REST. `refresh` is the scheduled idempotent entry point; production scheduling should invoke it each morning and retain raw response metadata.
+The offline command proves the required seed-to-database path without network access. A full `backfill` loads 2023-24 through the configured target using NHL Stats REST. `refresh` is the scheduled incremental entry point: each morning it rechecks D-1 through D-3 (with a capped missed-run recovery window), refreshes current-season aggregates, and snapshots standings and current rosters.
 
 ## Source mapping
 

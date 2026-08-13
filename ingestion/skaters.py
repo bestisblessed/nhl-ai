@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from .client import NHLHTTPClient
+from .records import PlayerGameRecord
 
 
 SUMMARY_FIELDS = (
@@ -98,6 +99,41 @@ class SkaterStatsIngestor:
             sort=[{"property": "gameId", "direction": "ASC"}, {"property": "playerId", "direction": "ASC"}],
         )
 
+    def normalize_games(
+        self,
+        summary: Iterable[dict[str, Any]],
+        *,
+        team_ids_by_abbrev: dict[str, int],
+        game_type_id: int = 2,
+    ) -> list[PlayerGameRecord]:
+        """Normalize ``isGame=true`` summary rows for transactional upserts."""
+        rows: list[PlayerGameRecord] = []
+        for item in summary:
+            self._validate_game_summary(item)
+            team_abbrev = str(item["teamAbbrev"]).strip().upper()
+            try:
+                team_id = team_ids_by_abbrev[team_abbrev]
+            except KeyError as exc:
+                raise ValueError(f"unknown team abbreviation in skater game summary: {team_abbrev}") from exc
+            rows.append(PlayerGameRecord(
+                game_id=int(item["gameId"]),
+                player_id=int(item["playerId"]),
+                player_name=str(item.get("skaterFullName") or "").strip(),
+                team_id=team_id,
+                team_abbrev=team_abbrev,
+                position_code=self._text(item.get("positionCode")),
+                game_type_id=int(game_type_id),
+                goals=self._int(item.get("goals")),
+                assists=self._int(item.get("assists")),
+                points=self._int(item.get("points")),
+                pim=self._int(item.get("penaltyMinutes")),
+                shots=self._int(item.get("shots")),
+                # The game-level report retains the aggregate field name, but
+                # with one game this value is the player's exact game TOI.
+                toi_seconds=self._float(item.get("timeOnIcePerGame")),
+            ))
+        return rows
+
     def normalize_season(self, summary: Iterable[dict[str, Any]], time_on_ice: Iterable[dict[str, Any]] = ()) -> list[SkaterSeasonRow]:
         toi_by_player = {int(r["playerId"]): r for r in time_on_ice if r.get("playerId") is not None}
         rows: list[SkaterSeasonRow] = []
@@ -155,6 +191,12 @@ class SkaterStatsIngestor:
         for field in ("playerId", "seasonId", "gamesPlayed", "goals", "assists", "points"):
             if field not in item:
                 raise ValueError(f"skater summary missing required field {field}")
+
+    @staticmethod
+    def _validate_game_summary(item: dict[str, Any]) -> None:
+        for field in ("gameId", "playerId", "teamAbbrev", "goals", "assists", "points"):
+            if field not in item:
+                raise ValueError(f"skater game summary missing required field {field}")
 
     @staticmethod
     def _int(value: Any) -> int:

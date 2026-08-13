@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ingestion.seasons import generate_season_ids
@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     backfill_through_season_id: int = 20262027
     game_type_id: int = 2
     daily_correction_lookback_days: int = 3
+    daily_max_recovery_days: int = 14
+    daily_timezone: str = "America/New_York"
     database_url: str = "sqlite:///./nhl.db"
     request_timeout_seconds: float = 30.0
     request_max_retries: int = 3
@@ -57,11 +59,21 @@ class Settings(BaseSettings):
             raise ValueError("game_type_id must be positive")
         return value
 
-    @field_validator("daily_correction_lookback_days")
+    @field_validator("daily_correction_lookback_days", "daily_max_recovery_days")
     @classmethod
     def validate_lookback(cls, value: int) -> int:
         if value < 1:
-            raise ValueError("daily_correction_lookback_days must be at least 1")
+            raise ValueError("daily refresh windows must be at least 1 day")
+        return value
+
+    @field_validator("daily_max_recovery_days")
+    @classmethod
+    def validate_recovery_window(cls, value: int, info) -> int:
+        lookback = info.data.get("daily_correction_lookback_days")
+        if lookback is not None and value < lookback:
+            raise ValueError(
+                "daily_max_recovery_days must be >= daily_correction_lookback_days"
+            )
         return value
 
     @property

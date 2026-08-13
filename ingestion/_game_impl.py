@@ -38,10 +38,36 @@ class TeamIngestor:
         self.client = client
 
     def fetch_games(self, season_id: int, game_type_id: int = 2) -> list[TeamGameRecord]:
+        return self._fetch_games(season_id, game_type_id=game_type_id)
+
+    def fetch_date(
+        self,
+        season_id: int,
+        game_date: str,
+        game_type_id: int = 2,
+    ) -> list[TeamGameRecord]:
+        """Fetch the two team perspectives for games played on one date."""
+
+        return self._fetch_games(
+            season_id,
+            game_type_id=game_type_id,
+            game_date=game_date,
+        )
+
+    def _fetch_games(
+        self,
+        season_id: int,
+        *,
+        game_type_id: int,
+        game_date: str | None = None,
+    ) -> list[TeamGameRecord]:
+        date_filter = f' and gameDate="{game_date}"' if game_date else ""
         params = {
             "isAggregate": "false",
             "isGame": "true",
-            "cayenneExp": f"seasonId={season_id} and gameTypeId={game_type_id}",
+            "cayenneExp": (
+                f"seasonId={season_id} and gameTypeId={game_type_id}{date_filter}"
+            ),
             "sort": [{"property": "gameId", "direction": "ASC"}, {"property": "teamId", "direction": "ASC"}],
         }
         return [parse_team_game(row) for row in fetch_report(self.client, "team/summary", params=params)]

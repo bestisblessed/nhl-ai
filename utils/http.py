@@ -15,10 +15,9 @@ def get_json(client: Any, path: str, params: Mapping[str, Any] | None = None) ->
         method = getattr(client, name, None)
         if method is None:
             continue
-        response = method(path, params=params) if params is not None else method(path)
+        raw_response = method(path, params=params) if params is not None else method(path)
         # The shared NHLHTTPClient returns (payload, raw-response metadata).
-        if isinstance(response, tuple) and response:
-            response = response[0]
+        response: Any = raw_response[0] if isinstance(raw_response, tuple) and raw_response else raw_response
         if hasattr(response, "json"):
             response = response.json()
         if not isinstance(response, dict):

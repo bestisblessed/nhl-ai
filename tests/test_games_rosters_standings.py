@@ -1,6 +1,7 @@
 from ingestion.games import GameIngestor, ScoreIngestor
 from ingestion.teams import (
     TeamIngestor,
+    fetch_team_abbreviations,
     validate_preseason_empty,
 )
 from ingestion.rosters import RosterIngestor
@@ -28,6 +29,7 @@ def test_game_and_team_stats_parse_and_use_correct_filters():
         }]},
         "/stats/rest/en/team/summary": {"total": 1, "data": [{
             "gameId": 2024020001, "teamId": 7, "gameDate": "2024-10-04", "homeRoad": "H",
+            "teamAbbrev": "BUF", "teamFullName": "Buffalo Sabres",
             "opponentTeamAbbrev": "EDM", "gamesPlayed": 1, "goalsFor": 1,
             "goalsAgainst": 4, "shotsForPerGame": 26, "shotsAgainstPerGame": 31,
             "wins": 0, "losses": 1, "otLosses": 0, "points": 0,
@@ -35,9 +37,21 @@ def test_game_and_team_stats_parse_and_use_correct_filters():
     })
     game = GameIngestor(client).fetch_season(20242025)
     team = TeamIngestor(client).fetch_games(20242025)
+    daily_team = TeamIngestor(client).fetch_date(20242025, "2024-10-04")
     assert game[0].game_id == team[0].game_id == 2024020001
+    assert daily_team[0].game_id == 2024020001
     assert game[0].home_team_id == 7 and team[0].shots_for_per_game == 26.0
     assert "season=20242025 and gameType=2" in client.calls[0][1]["cayenneExp"]
+    assert 'gameDate="2024-10-04"' in client.calls[2][1]["cayenneExp"]
+
+
+def test_team_dimension_provides_abbreviation_for_storage():
+    client = FakeClient({
+        "team": {"total": 1, "data": [{
+            "id": 1, "triCode": "NJD", "fullName": "New Jersey Devils",
+        }]},
+    })
+    assert fetch_team_abbreviations(client) == {1: "NJD"}
 
 
 def test_score_roster_and_standings_flatten_web_payloads():
@@ -55,7 +69,8 @@ def test_score_roster_and_standings_flatten_web_payloads():
         "/v1/standings/2025-04-17": {"standings": [{"seasonId": 20242025, "gameTypeId": 2,
             "teamAbbrev": {"default": "WPG"}, "teamName": {"default": "Winnipeg Jets"},
             "gamesPlayed": 82, "wins": 56, "losses": 22, "otLosses": 4, "points": 116,
-            "goalFor": 277, "goalAgainst": 191, "goalDifferential": 86}]},
+            "goalFor": 277, "goalAgainst": 191, "goalDifferential": 86,
+            "leagueSequence": 1}]},
     })
     score = ScoreIngestor(client).fetch_date("2025-04-17")[0]
     roster = RosterIngestor(client).fetch_current("TBL", snapshot_date="2026-08-13")
@@ -63,6 +78,7 @@ def test_score_roster_and_standings_flatten_web_payloads():
     assert (score.home_score, score.visiting_sog) == (5, 24)
     assert {r.player_id for r in roster} == {8478519, 8476899}
     assert standings.team_abbrev == "WPG" and standings.team_id is None
+    assert standings.rank == 1
 
 
 def test_preseason_empty_is_valid_until_a_final_game_exists():

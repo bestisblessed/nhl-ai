@@ -43,6 +43,20 @@ class StandingsIngestor:
             for row in payload.get("standings", [])
         ]
 
+    def fetch_now(
+        self,
+        *,
+        snapshot_date: str,
+        team_ids: Mapping[str, int] | None = None,
+    ) -> list[StandingsRecord]:
+        """Fetch the API's current standings and stamp the local snapshot date."""
+
+        payload = get_json(self.client, "/v1/standings/now")
+        return [
+            parse_standing(row, snapshot_date=snapshot_date, team_ids=team_ids)
+            for row in payload.get("standings", [])
+        ]
+
 
 def parse_roster(
     payload: dict[str, Any],
@@ -91,6 +105,7 @@ def parse_standing(
         or (team_ids or {}).get(abbreviation or ""),
         team_abbrev=abbreviation,
         team_name=_default(row.get("teamName")),
+        rank=_int(row.get("leagueSequence")),
         conference=row.get("conferenceName") or row.get("conferenceAbbrev"),
         division=row.get("divisionName") or row.get("divisionAbbrev"),
         games_played=_int(row.get("gamesPlayed")),

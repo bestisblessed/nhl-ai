@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -15,7 +16,7 @@ def make_engine(settings: Settings | None = None) -> Engine:
     """Create an engine without opening a connection until first use."""
 
     current = settings or get_settings()
-    kwargs = {"pool_pre_ping": True}
+    kwargs: dict[str, Any] = {"pool_pre_ping": True}
     if current.database_url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
     return create_engine(current.database_url, **kwargs)

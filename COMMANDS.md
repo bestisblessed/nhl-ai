@@ -84,6 +84,15 @@ This loads:
 python main.py refresh
 ```
 
+This checks D-1 through D-3, extends backward after a missed successful run up
+to `DAILY_MAX_RECOVERY_DAYS`, refreshes current-season cumulative skater/team
+totals, and stores current standings and roster snapshots. To replay a known
+historical window without moving the normal daily recovery checkpoint:
+
+```bash
+python main.py refresh --as-of 2026-04-17
+```
+
 12. Start the API directly:
 
 ```bash
@@ -160,4 +169,7 @@ git status --short
 git diff --check
 ```
 
-The implementation did not create Alembic migrations or persist roster/standings records through the main orchestration path yet, so those pieces would need to be completed before treating Docker/PostgreSQL as production-ready.
+The take-home uses SQLAlchemy schema creation rather than Alembic migrations.
+For a production deployment, add versioned migrations and an external scheduler;
+the incremental refresh, player/team game corrections, run status, standings,
+and roster snapshots are wired into the current orchestration path.

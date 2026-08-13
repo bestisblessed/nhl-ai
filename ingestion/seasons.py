@@ -29,7 +29,10 @@ def generate_season_ids(start: int | str, through: int | str) -> tuple[int, ...]
 
 def _coerce_discovered(value: int | str | Mapping[str, object]) -> int:
     if isinstance(value, Mapping):
-        value = value.get("id", value.get("seasonId", value.get("season_id", "")))
+        candidate = value.get("id", value.get("seasonId", value.get("season_id", "")))
+        if not isinstance(candidate, (int, str)):
+            raise SeasonValidationError(f"invalid discovered NHL season: {candidate!r}")
+        return int(candidate)
     return int(value)
 
 
