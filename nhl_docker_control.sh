@@ -16,7 +16,19 @@ set -euo pipefail
 
 PROJECT="nhl_takehome_final"
 
-case "${1:-status}" in
+if [[ $# -eq 0 ]]; then
+  cat <<'EOF'
+Usage: ./nhl_docker_control.sh {status|start|stop|purge}
+
+  status  Show project containers and API health.
+  start   Build and start the project stack.
+  stop    Stop the stack while preserving PostgreSQL data.
+  purge   Remove the stack, PostgreSQL data volume, and project images.
+EOF
+  exit 0
+fi
+
+case "$1" in
   status)
     echo "Running containers:"
     docker compose -p "$PROJECT" ps -a
