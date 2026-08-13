@@ -68,64 +68,81 @@ def load_seed(settings: Settings) -> int:
 
 
 def backfill(settings: Settings, *, offline_seed_only: bool = False) -> dict[str, int]:
+    """Load every configured season and record whether the run fully completed.
+
+    Callers (notably the daily-refresh workflow) use the recorded
+    ``pipeline_runs`` row to decide whether a full backfill ever succeeded.
+    Without this record, a run that dies partway through the season loop
+    still leaves ``seasons`` rows behind (via ``register_seasons``), which
+    would make a merely-started backfill indistinguishable from a completed
+    one and silently strand the unprocessed seasons forever.
+    """
+
     engine = make_engine(settings)
     create_schema(engine)
-    seed_rows = load_seed_csv(settings.seed_csv_path, expected_season_id=settings.backfill_start_season_id)
-    counts: dict[str, int] = {}
-    with session_scope(engine) as session:
-        register_seasons(settings, session)
-        counts["seed"] = upsert_seed(session, seed_rows, game_type_id=settings.game_type_id)
-        session.flush()
-        seed_season = session.get(Season, (settings.backfill_start_season_id, settings.game_type_id))
-        if seed_season is not None:
-            seed_season.state = "seeded"
-    if offline_seed_only:
-        return counts
-
-    stats = _stats_client(settings)
-    skaters = SkaterStatsIngestor(stats)
-    games = GameIngestor(stats)
-    teams = TeamIngestor(stats)
-    team_abbrevs = fetch_team_abbreviations(stats)
-    for season_id in settings.season_ids:
-        is_seed_season = season_id == settings.backfill_start_season_id
-        if is_seed_season:
-            skater_rows = seed_rows
-            api_skater_rows = None
-        else:
-            summary = skaters.fetch_season_summary(season_id, game_type_id=settings.game_type_id)
-            toi = skaters.fetch_season_time_on_ice(season_id, game_type_id=settings.game_type_id)
-            api_skater_rows = skaters.normalize_season(summary, toi)
-            skater_rows = api_skater_rows
-        game_rows = games.fetch_season(season_id, game_type_id=settings.game_type_id)
-        team_rows = teams.fetch_games(season_id, game_type_id=settings.game_type_id)
-        season_team_rows = teams.fetch_season(season_id, game_type_id=settings.game_type_id)
-        final_games = sum(1 for row in game_rows if row.state_id == 7)
-        validate_preseason_empty(season_id=season_id, final_game_count=final_games, stat_records=skater_rows)
+    run_id = _start_run(engine, command="backfill", seasons=list(settings.season_ids))
+    try:
+        seed_rows = load_seed_csv(settings.seed_csv_path, expected_season_id=settings.backfill_start_season_id)
+        counts: dict[str, int] = {}
         with session_scope(engine) as session:
-            if api_skater_rows is not None:
-                upsert_skater_rows(session, api_skater_rows, game_type_id=settings.game_type_id)
-            upsert_games(session, game_rows)
-            upsert_team_rows(
-                session,
-                team_rows,
-                season_id=season_id,
-                team_abbrevs=team_abbrevs,
-                game_type_id=settings.game_type_id,
-            )
-            upsert_team_season_rows(
-                session,
-                season_team_rows,
-                team_abbrevs=team_abbrevs,
-                game_type_id=settings.game_type_id,
-            )
-            state = "seeded" if is_seed_season else (
-                "scheduled" if not skater_rows and not final_games else "complete"
-            )
-            session.merge(Season(season_id=season_id, game_type_id=settings.game_type_id, state=state))
-        if not is_seed_season:
-            counts[str(season_id)] = len(skater_rows)
-    return counts
+            register_seasons(settings, session)
+            counts["seed"] = upsert_seed(session, seed_rows, game_type_id=settings.game_type_id)
+            session.flush()
+            seed_season = session.get(Season, (settings.backfill_start_season_id, settings.game_type_id))
+            if seed_season is not None:
+                seed_season.state = "seeded"
+        if offline_seed_only:
+            _finish_run(engine, run_id, status="succeeded", counts=counts)
+            return counts
+
+        stats = _stats_client(settings)
+        skaters = SkaterStatsIngestor(stats)
+        games = GameIngestor(stats)
+        teams = TeamIngestor(stats)
+        team_abbrevs = fetch_team_abbreviations(stats)
+        for season_id in settings.season_ids:
+            is_seed_season = season_id == settings.backfill_start_season_id
+            if is_seed_season:
+                skater_rows = seed_rows
+                api_skater_rows = None
+            else:
+                summary = skaters.fetch_season_summary(season_id, game_type_id=settings.game_type_id)
+                toi = skaters.fetch_season_time_on_ice(season_id, game_type_id=settings.game_type_id)
+                api_skater_rows = skaters.normalize_season(summary, toi)
+                skater_rows = api_skater_rows
+            game_rows = games.fetch_season(season_id, game_type_id=settings.game_type_id)
+            team_rows = teams.fetch_games(season_id, game_type_id=settings.game_type_id)
+            season_team_rows = teams.fetch_season(season_id, game_type_id=settings.game_type_id)
+            final_games = sum(1 for row in game_rows if row.state_id == 7)
+            validate_preseason_empty(season_id=season_id, final_game_count=final_games, stat_records=skater_rows)
+            with session_scope(engine) as session:
+                if api_skater_rows is not None:
+                    upsert_skater_rows(session, api_skater_rows, game_type_id=settings.game_type_id)
+                upsert_games(session, game_rows)
+                upsert_team_rows(
+                    session,
+                    team_rows,
+                    season_id=season_id,
+                    team_abbrevs=team_abbrevs,
+                    game_type_id=settings.game_type_id,
+                )
+                upsert_team_season_rows(
+                    session,
+                    season_team_rows,
+                    team_abbrevs=team_abbrevs,
+                    game_type_id=settings.game_type_id,
+                )
+                state = "seeded" if is_seed_season else (
+                    "scheduled" if not skater_rows and not final_games else "complete"
+                )
+                session.merge(Season(season_id=season_id, game_type_id=settings.game_type_id, state=state))
+            if not is_seed_season:
+                counts[str(season_id)] = len(skater_rows)
+        _finish_run(engine, run_id, status="succeeded", counts=counts)
+        return counts
+    except Exception as exc:
+        _finish_run(engine, run_id, status="failed", error=str(exc))
+        raise
 
 
 def refresh_window(
