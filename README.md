@@ -1,0 +1,45 @@
+# NHL Take-Home Pipeline
+
+This implementation keeps every contiguous regular season from the supplied 2022-23 seed through the configured 2026-27 target. NHL JSON is the primary source; Hockey Reference remains optional reconciliation.
+
+## Run locally
+
+```bash
+python -m pip install -e '.[api,test]'
+python -m nhl_pipeline backfill --offline-seed-only
+uvicorn nhl_pipeline.api:app --reload
+python -m pytest
+```
+
+The offline command proves the required seed-to-database path without network access. A full `backfill` loads 2023-24 through the configured target using NHL Stats REST. `refresh` is the scheduled idempotent entry point; production scheduling should invoke it each morning and retain raw response metadata.
+
+## Source mapping
+
+`skater/summary` supplies player IDs, names, teams, positions, games, goals, assists, points, plus/minus, PIM, special-team goals/points, shots, percentages, and season IDs. `skater/timeonice` supplies TOI and shifts. `/stats/rest/en/game` supplies one canonical row per game. `team/summary?isGame=true` supplies two team-perspective rows per completed game and is the source for exact team goals/shots rankings. Web score, dated standings, and roster endpoints provide mutable daily state.
+
+The supplied CSV contains only skater aggregates for 2022-23. Its comma-separated team field is retained for multi-team reporting; it is never used to attribute aggregate goals or shots to a team.
+
+## Validation guarantees
+
+- Contiguous season discovery fails on a missing intermediate year.
+- Seed import validates 24 positional columns, 951 unique players, and literal `None` semantics.
+- Full report retrieval validates `total` and falls back to 100-row pagination.
+- 2026-27 may have an empty statistics response while it has no final regular-season games.
+- Once a final game exists, empty statistics are a hard failure.
+- Composite keys make repeated imports and refreshes idempotent.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  CSV[2022-23 seed CSV] --> Import[Seed importer]
+  Stats[NHL Stats REST] --> Client[Shared HTTP client]
+  Web[NHL Web API] --> Client
+  Client --> Parse[Endpoint parsers]
+  Import --> DB[(PostgreSQL / SQLite)]
+  Parse --> DB
+  DB --> API[FastAPI assignment routes]
+  Cron[Daily refresh] --> API
+```
+
+Docker Compose provides PostgreSQL and the FastAPI service. No commit or remote publication is performed by this worktree task.
