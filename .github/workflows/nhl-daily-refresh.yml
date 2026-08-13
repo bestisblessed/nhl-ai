@@ -1,0 +1,155 @@
+name: NHL Daily Refresh
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+      timezone: America/New_York
+  workflow_dispatch:
+    inputs:
+      as_of:
+        description: "Optional replay date (YYYY-MM-DD); blank runs the normal morning refresh"
+        required: false
+        type: string
+  push:
+    # Lets workflow changes prove themselves before merge without running on
+    # every application commit. Scheduled workflows run from the default branch.
+    paths:
+      - ".github/workflows/nhl-daily-refresh.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: nhl-daily-refresh-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Test and refresh NHL data
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.NHL_DATABASE_URL }}
+      SEED_CSV_PATH: data/data_dump.csv
+      BACKFILL_START_SEASON_ID: "20222023"
+      BACKFILL_THROUGH_SEASON_ID: "20262027"
+      GAME_TYPE_ID: "2"
+      DAILY_CORRECTION_LOOKBACK_DAYS: "3"
+      DAILY_MAX_RECOVERY_DAYS: "14"
+      DAILY_TIMEZONE: America/New_York
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install '.[api,postgres,test]'
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Validate database secret
+        run: |
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "NHL_DATABASE_URL is not configured in GitHub Actions secrets."
+            exit 1
+          fi
+          case "$DATABASE_URL" in
+            postgresql://*|postgres://*|postgresql+psycopg://*) ;;
+            *)
+              echo "NHL_DATABASE_URL must be a PostgreSQL URL."
+              exit 1
+              ;;
+          esac
+
+      - name: Bootstrap managed database when empty
+        id: database_state
+        run: |
+          if python - <<'PY'
+          import os
+          import sys
+          from sqlalchemy import text
+          from sqlalchemy.exc import SQLAlchemyError
+          from config import Settings
+          from storage.db import make_engine
+
+          try:
+              settings = Settings(database_url=os.environ["DATABASE_URL"])
+              with make_engine(settings).connect() as connection:
+                  initialized = connection.execute(
+                      text("SELECT 1 FROM seasons LIMIT 1")
+                  ).first() is not None
+          except SQLAlchemyError:
+              initialized = False
+          sys.exit(0 if initialized else 1)
+          PY
+          then
+            echo "initialized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "initialized=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run initial managed database backfill
+        if: steps.database_state.outputs.initialized != 'true'
+        run: |
+          echo "Managed database is empty; running the one-time contiguous backfill."
+          python main.py backfill
+
+      - name: Run incremental refresh
+        env:
+          REFRESH_AS_OF: ${{ inputs.as_of || '' }}
+        run: |
+          if [[ -n "$REFRESH_AS_OF" ]]; then
+            python main.py refresh --as-of "$REFRESH_AS_OF" | tee data/refresh-result.json
+          else
+            python main.py refresh | tee data/refresh-result.json
+          fi
+
+      - name: Verify PostgreSQL and successful run
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from sqlalchemy import text
+          from config import Settings
+          from storage.db import make_engine
+
+          with open("data/refresh-result.json", encoding="utf-8") as result_file:
+              result = json.load(result_file)
+          settings = Settings(database_url=os.environ["DATABASE_URL"])
+          with make_engine(settings).connect() as connection:
+              connection.execute(text("SELECT 1"))
+              row = connection.execute(
+                  text("SELECT status, row_counts FROM pipeline_runs WHERE run_id = :run_id"),
+                  {"run_id": result["run_id"]},
+              ).first()
+          assert row is not None, result["run_id"]
+          status, stored_counts = row
+          assert status == "succeeded", status
+          if isinstance(stored_counts, str):
+              stored_counts = json.loads(stored_counts)
+          assert stored_counts["run_id"] == result["run_id"]
+          print(json.dumps({"status": status, **stored_counts}, sort_keys=True))
+          PY
+
+      - name: Upload refresh summary
+        if: always() && hashFiles('data/refresh-result.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: nhl-refresh-summary-${{ github.run_id }}
+          path: data/refresh-result.json
+          if-no-files-found: error
+          retention-days: 90
