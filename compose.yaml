@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nhl}
+      POSTGRES_USER: ${POSTGRES_USER:-nhl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nhl}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  ingest:
+    build: .
+    command: ["python", "-m", "nhl_api.ingestion", "/data/data_dump.csv"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://nhl:nhl@db:5432/nhl}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/data:ro
+    restart: "no"
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://nhl:nhl@db:5432/nhl}
+    depends_on:
+      db:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  test:
+    build:
+      context: .
+      target: test
+    command: ["python", "-m", "pytest", "-p", "no:cacheprovider"]
+    profiles: ["test"]
+
+volumes:
+  postgres_data:
