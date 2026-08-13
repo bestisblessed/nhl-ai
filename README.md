@@ -13,6 +13,14 @@ python -m pytest
 
 The offline command proves the required seed-to-database path without network access. A full `backfill` loads 2023-24 through the configured target using NHL Stats REST. `refresh` is the scheduled incremental entry point: each morning it rechecks D-1 through D-3 (with a capped missed-run recovery window), refreshes current-season aggregates, and snapshots standings and current rosters.
 
+The `NHL Daily Refresh` GitHub Actions workflow runs at 06:17 America/New_York every day and
+can also be started manually with an optional historical `as_of` date. Because
+GitHub-hosted runners are temporary, it restores the latest SQLite database from
+Actions cache (with the latest successful artifact as a fallback), performs a
+full backfill only when no schema-compatible copy exists, and uploads the
+refreshed database plus JSON run summary as a 90-day artifact.
+GitHub only schedules workflows that exist on the repository's default branch.
+
 ## Source mapping
 
 The repository intentionally keeps the Python modules at the project root: `ingestion/` contains source retrieval and parsing; `storage/` owns SQLAlchemy models, sessions, and upserts; `utils/` contains shared helpers; `api/` contains FastAPI routes; and `main.py` is the CLI entry point.
