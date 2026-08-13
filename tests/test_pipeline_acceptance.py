@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from api.routes import create_app
 from config import Settings
 from storage.db import create_schema, make_engine
-from storage.models import PipelineRun, Player, RosterSnapshot
+from storage.models import PipelineRun, Player, RosterSnapshot, StandingsSnapshot
 from ingestion.pipeline import load_seed
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,31 @@ def test_seed_to_api_vertical_slice(tmp_path):
     assert response.status_code == 200
     assert response.json()[0]["name"] == "Connor McDavid"
     assert response.json()[0]["goals"] == 64
+
+
+def test_leaderboards_and_latest_standings(tmp_path):
+    db_path = tmp_path / "leaderboards.db"
+    settings = Settings(seed_csv_path=Path(__file__).parents[1] / "data" / "data_dump.csv", database_url=f"sqlite:///{db_path}")
+    load_seed(settings)
+    engine = make_engine(settings)
+    with Session(engine) as session:
+        session.add(StandingsSnapshot(
+            season_id=20252026, game_type_id=2, snapshot_date=date(2026, 4, 17),
+            team_id=12, team_abbrev="CAR", rank=1, games_played=82, wins=55,
+            losses=20, overtime_losses=7, points=117, goals_for=300, goals_against=220,
+        ))
+        session.commit()
+
+    client = TestClient(create_app(settings))
+    for metric, field in (("points", "points"), ("assists", "assists"), ("shooting_pct", "shooting_pct")):
+        response = client.get("/players/leaderboard", params={"season_id": 20222023, "metric": metric})
+        assert response.status_code == 200
+        assert response.json()[0][field] is not None
+
+    standings = client.get("/standings", params={"season_id": 20252026})
+    assert standings.status_code == 200
+    assert standings.json()[0]["team"] == "CAR"
+    assert standings.json()[0]["snapshot_date"] == "2026-04-17"
 
 
 def test_schema_creation_is_repeatable(tmp_path):
