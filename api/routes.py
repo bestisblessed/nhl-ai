@@ -184,6 +184,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "seasons": last.seasons, "row_counts": last.row_counts, "error": last.error}
 
     return app
-
-
-app = create_app()

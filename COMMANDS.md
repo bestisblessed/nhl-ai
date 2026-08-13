@@ -25,6 +25,9 @@ cd /Users/td/Code/nhl-ai-initial-scraper-plan
 cp .env.example .env
 ```
 
+Set `DATABASE_URL` in `.env` to a reachable PostgreSQL database before running
+any application or CLI command. The application has no SQLite fallback.
+
 5. Install the project and test dependencies:
 
 ```bash
@@ -96,7 +99,7 @@ python main.py refresh --as-of 2026-04-17
 12. Start the API directly:
 
 ```bash
-uvicorn api.routes:app \
+uvicorn api.routes:create_app --factory \
   --host 0.0.0.0 \
   --port 8000 \
   --reload

@@ -197,7 +197,7 @@ python main.py refresh
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec uvicorn api.routes:app \
+exec uvicorn api.routes:create_app --factory \
   --host "${API_HOST:-0.0.0.0}" \
   --port "${API_PORT:-8000}"
 ```

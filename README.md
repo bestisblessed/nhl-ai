@@ -6,10 +6,15 @@ This implementation keeps every contiguous regular season from the supplied 2022
 
 ```bash
 python -m pip install -e '.[api,test]'
+export DATABASE_URL='postgresql+psycopg://USER:PASSWORD@HOST/DATABASE?sslmode=require'
 python main.py backfill --offline-seed-only
-uvicorn api.routes:app --reload
+uvicorn api.routes:create_app --factory --reload
 python -m pytest
 ```
+
+`DATABASE_URL` is required for application and CLI runs and must point to
+PostgreSQL. The test suite uses explicitly configured temporary SQLite databases
+for isolated unit tests; SQLite is not an application fallback.
 
 The offline command proves the required seed-to-database path without network access. A full `backfill` loads 2023-24 through the configured target using NHL Stats REST. `refresh` is the scheduled incremental entry point: each morning it rechecks D-1 through D-3 (with a capped missed-run recovery window), refreshes current-season aggregates, and snapshots standings and current rosters.
 

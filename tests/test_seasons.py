@@ -33,7 +33,7 @@ def test_discovery_ignores_newer_api_seasons_but_returns_configured_range():
 
 
 def test_settings_exposes_all_configured_seasons():
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None, database_url="sqlite:///:memory:")
     assert settings.season_ids == generate_season_ids(20222023, 20262027)
 
 
