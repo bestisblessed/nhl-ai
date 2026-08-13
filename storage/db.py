@@ -12,14 +12,25 @@ from config import Settings, get_settings
 from .models import Base
 
 
+def normalize_database_url(database_url: str) -> str:
+    """Select psycopg for provider URLs that omit an explicit SQLAlchemy driver."""
+
+    if database_url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + database_url.removeprefix("postgresql://")
+    if database_url.startswith("postgres://"):
+        return "postgresql+psycopg://" + database_url.removeprefix("postgres://")
+    return database_url
+
+
 def make_engine(settings: Settings | None = None) -> Engine:
     """Create an engine without opening a connection until first use."""
 
     current = settings or get_settings()
+    database_url = normalize_database_url(current.database_url)
     kwargs: dict[str, Any] = {"pool_pre_ping": True}
-    if current.database_url.startswith("sqlite"):
+    if database_url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
-    return create_engine(current.database_url, **kwargs)
+    return create_engine(database_url, **kwargs)
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:

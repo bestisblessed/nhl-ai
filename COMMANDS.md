@@ -44,7 +44,7 @@ python -m compileall -q ingestion storage utils api config.py main.py tests
 python -m pytest tests
 ```
 
-8. Load only the supplied seed CSV into SQLite:
+8. Load only the supplied seed CSV into a local SQLite test database:
 
 ```bash
 SEED_CSV_PATH=data/data_dump.csv \
@@ -144,7 +144,7 @@ curl "http://localhost:8000/players/multi-team?season_id=20222023"
 curl http://localhost:8000/pipeline/status
 ```
 
-20. Build and start Docker Compose:
+20. Build and start Docker Compose with local PostgreSQL:
 
 ```bash
 docker compose up --build

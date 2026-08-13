@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from config import Settings
+from storage.db import make_engine
 from storage.models import Player, PlayerSeasonStats, PipelineRun, RosterSnapshot, TeamGameStats
 
 
@@ -17,7 +18,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def get_engine():
         nonlocal engine
         if engine is None:
-            engine = create_engine(cfg.database_url)
+            engine = make_engine(cfg)
         return engine
     app = FastAPI(title="NHL Take-Home API", version="0.1.0")
 

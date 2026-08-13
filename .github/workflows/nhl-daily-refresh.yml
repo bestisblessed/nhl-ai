@@ -10,11 +10,6 @@ on:
         description: "Optional replay date (YYYY-MM-DD); blank runs the normal morning refresh"
         required: false
         type: string
-      rebuild_database:
-        description: "Discard the restored database and run a full backfill first"
-        required: false
-        default: false
-        type: boolean
   push:
     # Lets workflow changes prove themselves before merge without running on
     # every application commit. Scheduled workflows run from the default branch.
@@ -39,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      DATABASE_URL: sqlite:///./data/nhl-actions.db
+      DATABASE_URL: ${{ secrets.NHL_DATABASE_URL }}
       SEED_CSV_PATH: data/data_dump.csv
       BACKFILL_START_SEASON_ID: "20222023"
       BACKFILL_THROUGH_SEASON_ID: "20262027"
@@ -61,63 +56,57 @@ jobs:
           cache: pip
 
       - name: Install project
-        run: python -m pip install '.[api,test]'
+        run: python -m pip install '.[api,postgres,test]'
 
       - name: Run tests
         run: python -m pytest -q
 
-      - name: Restore latest database
-        uses: actions/cache@v5
-        with:
-          path: data/nhl-actions.db
-          key: nhl-actions-db-${{ runner.os }}-${{ hashFiles('storage/models.py') }}-${{ github.run_id }}
-          restore-keys: |
-            nhl-actions-db-${{ runner.os }}-${{ hashFiles('storage/models.py') }}-
-
-      - name: Restore latest successful artifact on cache miss
-        if: hashFiles('data/nhl-actions.db') == ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MODEL_SCHEMA_HASH: ${{ hashFiles('storage/models.py') }}
+      - name: Validate database secret
         run: |
-          previous_run="$(gh run list \
-            --repo "$GITHUB_REPOSITORY" \
-            --workflow nhl-daily-refresh.yml \
-            --branch "$GITHUB_REF_NAME" \
-            --status success \
-            --limit 1 \
-            --json databaseId \
-            --jq '.[0].databaseId // empty')"
-          if [[ -n "$previous_run" ]]; then
-            mkdir -p /tmp/nhl-previous
-            if gh run download "$previous_run" \
-              --repo "$GITHUB_REPOSITORY" \
-              --name "nhl-daily-refresh-$previous_run" \
-              --dir /tmp/nhl-previous; then
-              previous_db="$(find /tmp/nhl-previous -name nhl-actions.db -type f -print -quit)"
-              previous_schema="$(find /tmp/nhl-previous -name schema-hash.txt -type f -print -quit)"
-              if [[ -n "$previous_db" && -n "$previous_schema" ]] \
-                && [[ "$(<"$previous_schema")" == "$MODEL_SCHEMA_HASH" ]]; then
-                cp "$previous_db" data/nhl-actions.db
-                echo "Restored database artifact from successful run $previous_run."
-              else
-                echo "Previous artifact is absent or uses a different schema; a backfill is required."
-              fi
-            else
-              echo "Previous artifact is unavailable; a backfill is required."
-            fi
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "NHL_DATABASE_URL is not configured in GitHub Actions secrets."
+            exit 1
+          fi
+          case "$DATABASE_URL" in
+            postgresql://*|postgres://*|postgresql+psycopg://*) ;;
+            *)
+              echo "NHL_DATABASE_URL must be a PostgreSQL URL."
+              exit 1
+              ;;
+          esac
+
+      - name: Bootstrap managed database when empty
+        id: database_state
+        run: |
+          if python - <<'PY'
+          import os
+          import sys
+          from sqlalchemy import text
+          from sqlalchemy.exc import SQLAlchemyError
+          from config import Settings
+          from storage.db import make_engine
+
+          try:
+              settings = Settings(database_url=os.environ["DATABASE_URL"])
+              with make_engine(settings).connect() as connection:
+                  initialized = connection.execute(
+                      text("SELECT 1 FROM seasons LIMIT 1")
+                  ).first() is not None
+          except SQLAlchemyError:
+              initialized = False
+          sys.exit(0 if initialized else 1)
+          PY
+          then
+            echo "initialized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "initialized=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bootstrap database when needed
-        env:
-          REBUILD_DATABASE: ${{ inputs.rebuild_database || 'false' }}
+      - name: Run initial managed database backfill
+        if: steps.database_state.outputs.initialized != 'true'
         run: |
-          if [[ "$REBUILD_DATABASE" == "true" ]]; then
-            rm -f data/nhl-actions.db
-          fi
-          if [[ ! -s data/nhl-actions.db ]]; then
-            python main.py backfill
-          fi
+          echo "Managed database is empty; running the one-time contiguous backfill."
+          python main.py backfill
 
       - name: Run incremental refresh
         env:
@@ -129,41 +118,38 @@ jobs:
             python main.py refresh | tee data/refresh-result.json
           fi
 
-      - name: Verify database and successful run
+      - name: Verify PostgreSQL and successful run
         run: |
           python - <<'PY'
           import json
-          import sqlite3
+          import os
+          from sqlalchemy import text
+          from config import Settings
+          from storage.db import make_engine
 
-          database = sqlite3.connect("data/nhl-actions.db")
-          integrity = database.execute("PRAGMA quick_check").fetchone()[0]
           with open("data/refresh-result.json", encoding="utf-8") as result_file:
               result = json.load(result_file)
-          status, counts = database.execute(
-              "SELECT status, row_counts FROM pipeline_runs WHERE run_id = ?",
-              (result["run_id"],),
-          ).fetchone()
-          assert integrity == "ok", integrity
+          settings = Settings(database_url=os.environ["DATABASE_URL"])
+          with make_engine(settings).connect() as connection:
+              connection.execute(text("SELECT 1"))
+              row = connection.execute(
+                  text("SELECT status, row_counts FROM pipeline_runs WHERE run_id = :run_id"),
+                  {"run_id": result["run_id"]},
+              ).first()
+          assert row is not None, result["run_id"]
+          status, stored_counts = row
           assert status == "succeeded", status
-          stored_counts = json.loads(counts)
+          if isinstance(stored_counts, str):
+              stored_counts = json.loads(stored_counts)
           assert stored_counts["run_id"] == result["run_id"]
-          print(json.dumps({"integrity": integrity, "status": status, **stored_counts}, sort_keys=True))
+          print(json.dumps({"status": status, **stored_counts}, sort_keys=True))
           PY
 
-      - name: Record database schema version
-        if: always() && hashFiles('data/nhl-actions.db') != ''
-        env:
-          MODEL_SCHEMA_HASH: ${{ hashFiles('storage/models.py') }}
-        run: printf '%s' "$MODEL_SCHEMA_HASH" > data/schema-hash.txt
-
-      - name: Upload refreshed database and run summary
-        if: always() && hashFiles('data/nhl-actions.db') != ''
+      - name: Upload refresh summary
+        if: always() && hashFiles('data/refresh-result.json') != ''
         uses: actions/upload-artifact@v7
         with:
-          name: nhl-daily-refresh-${{ github.run_id }}
-          path: |
-            data/nhl-actions.db
-            data/refresh-result.json
-            data/schema-hash.txt
+          name: nhl-refresh-summary-${{ github.run_id }}
+          path: data/refresh-result.json
           if-no-files-found: error
           retention-days: 90
