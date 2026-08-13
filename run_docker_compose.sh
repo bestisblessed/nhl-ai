@@ -35,10 +35,20 @@ case "${1:-}" in
     docker compose ps --all
     curl --fail --silent --show-error --max-time 5 http://localhost:8000/health
     printf '\n'
-    seed_rows="$(curl --fail --silent --show-error --max-time 10 \
-      'http://localhost:8000/players/most-goals?season_id=20222023')"
-    if [[ "$seed_rows" == "[]" ]]; then
-      echo "Database is empty; running the initial historical backfill."
+    completed_seasons=""
+    if completed_seasons="$(docker compose exec -T db psql -U nhl -d nhl -tAc \
+      "SELECT count(*) FROM seasons WHERE game_type_id = 2 AND season_id IN \
+       (20222023, 20232024, 20242025, 20252026, 20262027) \
+       AND state IN ('seeded', 'complete', 'scheduled');" 2>/dev/null)"; then
+      completed_seasons="$(printf '%s' "$completed_seasons" | tr -d '[:space:]')"
+    fi
+    seed_rows=""
+    if [[ "$completed_seasons" == "5" ]]; then
+      seed_rows="$(curl --fail --silent --show-error --max-time 10 \
+        'http://localhost:8000/players/most-goals?season_id=20222023' || true)"
+    fi
+    if [[ "$completed_seasons" != "5" || "$seed_rows" == "[]" ]]; then
+      echo "Database backfill is missing or incomplete; running the initial historical backfill."
       docker compose run --rm api python main.py backfill
       echo "Initial backfill completed; running the first incremental refresh."
       docker compose run --rm api python main.py refresh
