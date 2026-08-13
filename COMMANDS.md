@@ -1,4 +1,4 @@
-Below is the reproducible command sequence for the implementation.
+Below is the reproducible command sequence for the `main` branch.
 
 1. Clone/open the repository:
 
@@ -6,20 +6,7 @@ Below is the reproducible command sequence for the implementation.
 cd /Users/td/Code/nhl-ai
 ```
 
-2. Create the implementation worktree:
-
-```bash
-git worktree add -b nhl-ai-initial-scraper-plan \
-  /Users/td/Code/nhl-ai-initial-scraper-plan main
-```
-
-3. Enter the worktree:
-
-```bash
-cd /Users/td/Code/nhl-ai-initial-scraper-plan
-```
-
-4. Create a local environment file:
+2. Create a local environment file:
 
 ```bash
 cp .env.example .env
@@ -28,26 +15,41 @@ cp .env.example .env
 Set `DATABASE_URL` in `.env` to a reachable PostgreSQL database before running
 any application or CLI command. The application has no SQLite fallback.
 
-5. Install the project and test dependencies:
+For the normal Docker workflow, one command is sufficient on a fresh machine:
+
+```bash
+./run_docker_compose.sh start
+```
+
+The start command builds and starts FastAPI/PostgreSQL, checks the health
+endpoint, and automatically runs the initial backfill plus first incremental
+refresh when the 2022-23 seed rows are absent. Existing populated volumes skip
+both ingestion steps. Run the daily incremental update separately with:
+
+```bash
+./refresh.sh
+```
+
+3. Install the project and test dependencies:
 
 ```bash
 python -m pip install -e '.[api,test]'
 ```
 
-6. Run syntax compilation:
+4. Run syntax compilation:
 
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/nhl-pyc \
 python -m compileall -q ingestion storage utils api config.py main.py tests
 ```
 
-7. Run the full test suite:
+5. Run the full test suite:
 
 ```bash
 python -m pytest tests
 ```
 
-8. Load only the supplied seed CSV into a local SQLite test database:
+6. Load only the supplied seed CSV into a temporary SQLite test database:
 
 ```bash
 SEED_CSV_PATH=data/data_dump.csv \
@@ -61,13 +63,13 @@ Expected result:
 {"seed": 951}
 ```
 
-9. Run the seed-only CLI command:
+7. Run the seed-only CLI command:
 
 ```bash
 python main.py seed
 ```
 
-10. Run the complete historical backfill:
+8. Run the complete historical backfill manually when needed:
 
 ```bash
 python main.py backfill
@@ -81,7 +83,7 @@ This loads:
 - 2025-26 NHL API data
 - 2026-27 schedule/preseason state
 
-11. Run the daily refresh:
+9. Run the daily refresh:
 
 ```bash
 python main.py refresh

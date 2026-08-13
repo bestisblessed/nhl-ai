@@ -5,12 +5,18 @@ This implementation keeps every contiguous regular season from the supplied 2022
 ## Run locally
 
 ```bash
-python -m pip install -e '.[api,test]'
-export DATABASE_URL='postgresql+psycopg://USER:PASSWORD@HOST/DATABASE?sslmode=require'
-python main.py backfill --offline-seed-only
-uvicorn api.routes:create_app --factory --reload
-python -m pytest
+./run_docker_compose.sh start
+./refresh.sh
 ```
+
+`run_docker_compose.sh start` builds the local FastAPI/PostgreSQL stack and
+automatically runs the initial backfill and first incremental refresh when the
+2022-23 seed data is absent. On later starts it detects the existing database
+and skips both ingestion steps.
+
+For direct CLI development outside Docker, install the project with
+`python -m pip install -e '.[api,test]'` and set `DATABASE_URL` to a reachable
+PostgreSQL database first.
 
 `DATABASE_URL` is required for application and CLI runs and must point to
 PostgreSQL. The test suite uses explicitly configured temporary SQLite databases

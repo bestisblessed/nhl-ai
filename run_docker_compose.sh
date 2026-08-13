@@ -7,7 +7,7 @@ cd "$SCRIPT_DIR"
 
 usage() {
   cat <<'EOF'
-Usage: ./nhl_docker_control.sh {status|start|stop|purge}
+Usage: ./run_docker_compose.sh {status|start|stop|purge}
 
   status  Show containers and API health.
   start   Build and start the local PostgreSQL/API stack.
@@ -35,6 +35,17 @@ case "${1:-}" in
     docker compose ps --all
     curl --fail --silent --show-error --max-time 5 http://localhost:8000/health
     printf '\n'
+    seed_rows="$(curl --fail --silent --show-error --max-time 10 \
+      'http://localhost:8000/players/most-goals?season_id=20222023')"
+    if [[ "$seed_rows" == "[]" ]]; then
+      echo "Database is empty; running the initial historical backfill."
+      docker compose run --rm api python main.py backfill
+      echo "Initial backfill completed; running the first incremental refresh."
+      docker compose run --rm api python main.py refresh
+      echo "Initial backfill and refresh completed."
+    else
+      echo "Existing database detected; skipping initial backfill and refresh."
+    fi
     ;;
   stop)
     docker compose down --remove-orphans
