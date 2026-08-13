@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     daily_correction_lookback_days: int = 3
     daily_max_recovery_days: int = 14
     daily_timezone: str = "America/New_York"
-    database_url: str = "sqlite:///./nhl.db"
+    # A database URL is required for every application/CLI run. SQLite remains
+    # available only when tests pass an explicit temporary URL.
+    database_url: str
     request_timeout_seconds: float = 30.0
     request_max_retries: int = 3
 

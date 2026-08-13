@@ -1,7 +1,7 @@
 # API Endpoints Reference
 
-FastAPI service defined in `api/routes.py` (`uvicorn api.routes:app`). Backed by the
-PostgreSQL/SQLite schema in `storage/models.py`, populated by `main.py seed|backfill|refresh`.
+FastAPI service defined in `api/routes.py` (`uvicorn api.routes:create_app --factory`). Backed by
+the PostgreSQL schema in `storage/models.py`, populated by `main.py seed|backfill|refresh`.
 Season IDs use the NHL `YYYYZZZZ` format (e.g. `20222023`); the configured range is
 `backfill_start_season_id` (default `20222023`) through `backfill_through_season_id`
 (default `20262027`) via `config.Settings`.
@@ -11,10 +11,12 @@ Season IDs use the NHL `YYYYZZZZ` format (e.g. `20222023`); the configured range
 | 1 | `GET /health` | Liveness/DB-connectivity check |
 | 2 | `GET /players/most-goals` | Top goal scorers for a season |
 | 3 | `GET /players/penalties-per-minute` | Penalty-minutes-per-TOI-minute leaders |
-| 4 | `GET /teams/rankings` | Team leaderboard by goals or shots |
-| 5 | `GET /players/multi-team` | Players who played for >1 team in a season |
-| 6 | `GET /rosters/current/{team_abbrev}` | Latest active roster snapshot for a team |
-| 7 | `GET /pipeline/status` | Most recent ingestion run's status/metrics |
+| 4 | `GET /players/leaderboard` | Player leaderboard by points, assists, or shooting percentage |
+| 5 | `GET /teams/rankings` | Team leaderboard by goals or shots |
+| 6 | `GET /standings` | Latest dated standings snapshot for a season |
+| 7 | `GET /players/multi-team` | Players who played for >1 team in a season |
+| 8 | `GET /rosters/current/{team_abbrev}` | Latest active roster snapshot for a team |
+| 9 | `GET /pipeline/status` | Most recent ingestion run's status/metrics |
 
 ---
 
