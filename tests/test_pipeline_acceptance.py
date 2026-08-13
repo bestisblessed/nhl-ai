@@ -50,6 +50,22 @@ def test_leaderboards_and_latest_standings(tmp_path):
     assert standings.json()[0]["snapshot_date"] == "2026-04-17"
 
 
+def test_api_on_fresh_database_returns_empty_results_instead_of_crashing(tmp_path):
+    """A brand-new database has no tables until seed/backfill has ever run.
+
+    Bootstrap tooling (e.g. run_docker_compose.sh) probes a data endpoint to
+    decide whether an initial backfill is needed, so that probe must succeed
+    with an empty result rather than raising an unhandled "no such table"
+    error on the very first start.
+    """
+
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'fresh.db'}")
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/players/most-goals", params={"season_id": 20222023})
+        assert response.status_code == 200
+        assert response.json() == []
+
+
 def test_schema_creation_is_repeatable(tmp_path):
     settings = Settings(database_url=f"sqlite:///{tmp_path / 'x.db'}")
     engine = make_engine(settings)

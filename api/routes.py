@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from config import Settings
-from storage.db import make_engine
+from storage.db import create_schema, make_engine
 from storage.models import (
     Player,
     PlayerSeasonStats,
@@ -27,7 +29,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if engine is None:
             engine = make_engine(cfg)
         return engine
-    app = FastAPI(title="NHL Take-Home API", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        # A brand-new database (before seed/backfill has ever run) has no
+        # tables yet. Without this, every data endpoint below raises an
+        # unhandled "no such table" error instead of returning an empty
+        # result, which breaks callers (e.g. bootstrap scripts) that rely on
+        # these endpoints to detect an empty database.
+        try:
+            create_schema(get_engine())
+        except SQLAlchemyError:
+            pass
+        yield
+
+    app = FastAPI(title="NHL Take-Home API", version="0.1.0", lifespan=lifespan)
 
     @app.get("/health")
     def health() -> dict[str, str]:
