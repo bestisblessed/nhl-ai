@@ -1,0 +1,9 @@
+.env
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+build/
+*.py[cod]
+*.egg-info/
+nhl-log.txt

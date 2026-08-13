@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nhl-analytics-api"
+version = "0.1.0"
+description = "Small FastAPI service for NHL player-season analytics"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.116.1",
+  "pandas==2.3.2",
+  "psycopg[binary]==3.2.9",
+  "SQLAlchemy==2.0.43",
+  "uvicorn==0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx==0.28.1",
+  "pytest==8.4.1",
+  "ruff==0.12.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

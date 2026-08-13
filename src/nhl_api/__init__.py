@@ -1,0 +1,1 @@
+"""NHL analytics API package."""
