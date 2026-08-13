@@ -83,24 +83,28 @@ jobs:
           previous_run="$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
             --workflow nhl-daily-refresh.yml \
+            --branch "$GITHUB_REF_NAME" \
             --status success \
             --limit 1 \
             --json databaseId \
             --jq '.[0].databaseId // empty')"
           if [[ -n "$previous_run" ]]; then
             mkdir -p /tmp/nhl-previous
-            gh run download "$previous_run" \
+            if gh run download "$previous_run" \
               --repo "$GITHUB_REPOSITORY" \
               --name "nhl-daily-refresh-$previous_run" \
-              --dir /tmp/nhl-previous
-            previous_db="$(find /tmp/nhl-previous -name nhl-actions.db -type f -print -quit)"
-            previous_schema="$(find /tmp/nhl-previous -name schema-hash.txt -type f -print -quit)"
-            if [[ -n "$previous_db" && -n "$previous_schema" ]] \
-              && [[ "$(<"$previous_schema")" == "$MODEL_SCHEMA_HASH" ]]; then
-              cp "$previous_db" data/nhl-actions.db
-              echo "Restored database artifact from successful run $previous_run."
+              --dir /tmp/nhl-previous; then
+              previous_db="$(find /tmp/nhl-previous -name nhl-actions.db -type f -print -quit)"
+              previous_schema="$(find /tmp/nhl-previous -name schema-hash.txt -type f -print -quit)"
+              if [[ -n "$previous_db" && -n "$previous_schema" ]] \
+                && [[ "$(<"$previous_schema")" == "$MODEL_SCHEMA_HASH" ]]; then
+                cp "$previous_db" data/nhl-actions.db
+                echo "Restored database artifact from successful run $previous_run."
+              else
+                echo "Previous artifact is absent or uses a different schema; a backfill is required."
+              fi
             else
-              echo "Previous artifact is absent or uses a different schema; a backfill is required."
+              echo "Previous artifact is unavailable; a backfill is required."
             fi
           fi
 
