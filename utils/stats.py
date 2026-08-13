@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from ._http import get_json
+from .http import get_json
 
 
 def _int(value: Any) -> int | None:

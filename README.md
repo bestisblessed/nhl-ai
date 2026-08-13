@@ -6,14 +6,18 @@ This implementation keeps every contiguous regular season from the supplied 2022
 
 ```bash
 python -m pip install -e '.[api,test]'
-python -m nhl_pipeline backfill --offline-seed-only
-uvicorn nhl_pipeline.api:app --reload
+python main.py backfill --offline-seed-only
+uvicorn api.routes:app --reload
 python -m pytest
 ```
 
 The offline command proves the required seed-to-database path without network access. A full `backfill` loads 2023-24 through the configured target using NHL Stats REST. `refresh` is the scheduled idempotent entry point; production scheduling should invoke it each morning and retain raw response metadata.
 
 ## Source mapping
+
+The repository intentionally keeps the Python modules at the project root: `ingestion/` contains source retrieval and parsing; `storage/` owns SQLAlchemy models, sessions, and upserts; `utils/` contains shared helpers; `api/` contains FastAPI routes; and `main.py` is the CLI entry point.
+
+`ingestion/client.py` owns HTTP behavior; `ingestion/skaters.py` handles player reports; `ingestion/games.py` handles schedules and scores; `ingestion/teams.py` handles team reports; `ingestion/rosters.py` and `ingestion/standings.py` handle the corresponding web endpoints; and `ingestion/pipeline.py` coordinates the run.
 
 `skater/summary` supplies player IDs, names, teams, positions, games, goals, assists, points, plus/minus, PIM, special-team goals/points, shots, percentages, and season IDs. `skater/timeonice` supplies TOI and shifts. `/stats/rest/en/game` supplies one canonical row per game. `team/summary?isGame=true` supplies two team-perspective rows per completed game and is the source for exact team goals/shots rankings. Web score, dated standings, and roster endpoints provide mutable daily state.
 

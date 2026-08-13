@@ -1,10 +1,10 @@
-from nhl_pipeline.game_team import (
-    GameIngestor,
-    ScoreIngestor,
+from ingestion.games import GameIngestor, ScoreIngestor
+from ingestion.teams import (
     TeamIngestor,
     validate_preseason_empty,
 )
-from nhl_pipeline.rosters_standings import RosterIngestor, StandingsIngestor
+from ingestion.rosters import RosterIngestor
+from ingestion.standings import StandingsIngestor
 
 
 class FakeClient:

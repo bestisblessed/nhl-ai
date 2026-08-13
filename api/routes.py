@@ -6,13 +6,18 @@ from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from .config import Settings
-from .models import Player, PlayerSeasonStats, PipelineRun, RosterSnapshot, TeamGameStats
+from config import Settings
+from storage.models import Player, PlayerSeasonStats, PipelineRun, RosterSnapshot, TeamGameStats
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings()
-    engine = create_engine(cfg.database_url)
+    engine = None
+    def get_engine():
+        nonlocal engine
+        if engine is None:
+            engine = create_engine(cfg.database_url)
+        return engine
     app = FastAPI(title="NHL Take-Home API", version="0.1.0")
 
     @app.get("/health")
@@ -21,7 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/players/most-goals")
     def most_goals(season_id: int = Query(20222023), limit: int = Query(1, ge=1, le=100)):
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             rows = session.execute(
                 select(PlayerSeasonStats, Player).join(Player, Player.player_id == PlayerSeasonStats.player_id)
                 .where(PlayerSeasonStats.season_id == season_id)
@@ -31,7 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/players/penalties-per-minute")
     def penalties_per_minute(season_id: int = Query(20222023), min_games: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=100)):
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             rows = session.execute(select(PlayerSeasonStats, Player).join(Player).where(
                 PlayerSeasonStats.season_id == season_id, PlayerSeasonStats.games_played >= min_games
             )).all()
@@ -49,7 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if metric not in {"goals", "shots"}:
             raise HTTPException(400, "metric must be goals or shots")
         column = TeamGameStats.goals_for if metric == "goals" else TeamGameStats.shots_for
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             rows = session.execute(select(TeamGameStats.team_id, TeamGameStats.team_abbrev, func.sum(column).label("value"))
                 .where(TeamGameStats.season_id == season_id).group_by(TeamGameStats.team_id, TeamGameStats.team_abbrev)
                 .order_by(func.sum(column).desc()).limit(limit)).all()
@@ -57,7 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/players/multi-team")
     def multi_team(season_id: int = Query(20222023)):
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             rows = session.execute(select(Player, PlayerSeasonStats).join(PlayerSeasonStats).where(PlayerSeasonStats.season_id == season_id)).all()
             output = []
             for player, stats in rows:
@@ -68,13 +73,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/rosters/current/{team_abbrev}")
     def current_roster(team_abbrev: str):
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             rows = session.execute(select(RosterSnapshot).where(RosterSnapshot.team_abbrev == team_abbrev.upper(), RosterSnapshot.active.is_(True)).order_by(RosterSnapshot.snapshot_date.desc())).scalars().all()
             return [{"player_id": row.player_id, "team": row.team_abbrev, "position": row.position, "snapshot_date": row.snapshot_date.isoformat()} for row in rows]
 
     @app.get("/pipeline/status")
     def pipeline_status():
-        with Session(engine) as session:
+        with Session(get_engine()) as session:
             last = session.scalar(select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(1))
             if last is None:
                 return {"status": "never_run"}

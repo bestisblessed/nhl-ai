@@ -18,7 +18,13 @@ postgres = ["psycopg[binary]>=3.2"]
 test = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
-include = ["nhl_pipeline*"]
+include = ["ingestion*", "storage*", "utils*", "api*"]
+
+[tool.setuptools]
+py-modules = ["config", "main"]
+
+[project.scripts]
+nhl-pipeline = "main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

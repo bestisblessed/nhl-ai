@@ -3,9 +3,9 @@
 from collections.abc import Iterable
 from typing import Any
 
-from ._http import get_json
+from utils.http import get_json
 from .records import GameRecord, ScoreRecord, TeamGameRecord, TeamSeasonRecord
-from .stats import _float, _int, fetch_report
+from utils.stats import _float, _int, fetch_report
 
 
 class GameIngestor:

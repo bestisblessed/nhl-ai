@@ -2,11 +2,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nhl_pipeline.api import create_app
-from nhl_pipeline.config import Settings
-from nhl_pipeline.db import create_schema, make_engine
-from nhl_pipeline.models import Player, PlayerSeasonStats
-from nhl_pipeline.pipeline import load_seed
+from api.routes import create_app
+from config import Settings
+from storage.db import create_schema, make_engine
+from storage.models import Player, PlayerSeasonStats
+from ingestion.pipeline import load_seed
 from sqlalchemy.orm import Session
 
 

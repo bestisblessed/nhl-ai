@@ -3,9 +3,9 @@
 from collections.abc import Mapping
 from typing import Any
 
-from ._http import get_json
+from utils.http import get_json
 from .records import RosterRecord, StandingsRecord
-from .stats import _int
+from utils.stats import _int
 
 
 def _default(value: Any) -> str | None:

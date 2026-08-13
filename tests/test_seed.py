@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from nhl_pipeline.seed import load_seed_csv
+from ingestion.seed import load_seed_csv
 
 
 class SeedImportTests(unittest.TestCase):

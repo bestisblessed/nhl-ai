@@ -1,6 +1,6 @@
 import unittest
 
-from nhl_pipeline.skaters import SkaterStatsIngestor
+from ingestion.skaters import SkaterStatsIngestor
 
 
 class FakeClient:

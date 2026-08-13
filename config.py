@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .seasons import generate_season_ids
+from ingestion.seasons import generate_season_ids
 
 
 class Settings(BaseSettings):

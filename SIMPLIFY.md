@@ -41,7 +41,7 @@ This reduces indirection without losing meaningful separation.
 Recommended result:
 
 ```text
-nhl_pipeline/
+ingestion/
 ├── game_team.py
 ├── rosters_standings.py
 ├── skaters.py
@@ -63,7 +63,7 @@ Then endpoint modules can call it directly. `_http.py` can be removed unless you
 `stats.py` contains generic pagination and numeric helpers. Rename it to something clearer, such as:
 
 ```text
-nhl_pipeline/stats_reports.py
+utils/stats.py
 ```
 
 Or merge the pagination helper into `client.py` if there will only be a few Stats REST reports.
@@ -117,7 +117,7 @@ However, combining tests is optional. The current structure makes failures easie
 ## Recommended target structure
 
 ```text
-nhl_pipeline/
+nhl-ai/
 ├── __init__.py
 ├── __main__.py
 ├── config.py
@@ -160,7 +160,7 @@ scripts/
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m compileall -q nhl_pipeline tests
+python -m compileall -q ingestion storage utils api config.py main.py tests
 python -m pytest tests
 ```
 
@@ -170,7 +170,7 @@ python -m pytest tests
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m nhl_pipeline seed
+python main.py seed
 ```
 
 ### `scripts/backfill.sh`
@@ -179,7 +179,7 @@ python -m nhl_pipeline seed
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m nhl_pipeline backfill
+python main.py backfill
 ```
 
 ### `scripts/refresh.sh`
@@ -188,7 +188,7 @@ python -m nhl_pipeline backfill
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m nhl_pipeline refresh
+python main.py refresh
 ```
 
 ### `scripts/api.sh`
@@ -197,7 +197,7 @@ python -m nhl_pipeline refresh
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec uvicorn nhl_pipeline.api:app \
+exec uvicorn api.routes:app \
   --host "${API_HOST:-0.0.0.0}" \
   --port "${API_PORT:-8000}"
 ```

@@ -2,7 +2,7 @@ import json
 import unittest
 from urllib.error import HTTPError
 
-from nhl_pipeline.client import NHLHTTPClient, NHLAPIError
+from ingestion.client import NHLHTTPClient, NHLAPIError
 
 
 class Response:

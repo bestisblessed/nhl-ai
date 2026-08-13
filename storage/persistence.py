@@ -10,9 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import Game, Player, PlayerSeasonStats, Season, TeamGameStats, TeamSeasonStats
-from .records import GameRecord, TeamGameRecord, TeamSeasonRecord
-from .seed import SeedSkaterRow
-from .skaters import SkaterSeasonRow
+from ingestion.records import GameRecord, TeamGameRecord, TeamSeasonRecord
+from ingestion.seed import SeedSkaterRow
+from ingestion.skaters import SkaterSeasonRow
 
 
 def upsert_seed(session: Session, rows: Iterable[SeedSkaterRow], *, game_type_id: int = 2) -> int:
@@ -52,7 +52,7 @@ def upsert_games(session: Session, rows: Iterable[GameRecord]) -> int:
     for row in rows:
         session.merge(Game(
             game_id=row.game_id, season_id=row.season_id, game_type_id=row.game_type_id,
-            game_date=date.fromisoformat(row.game_date), start_time_utc=_datetime(row.start_time_utc),
+            game_date=date.fromisoformat(row.game_date), start_time_utc=_datetime(row.start_time_local),
             away_team_id=row.visiting_team_id, home_team_id=row.home_team_id,
             away_goals=row.visiting_score, home_goals=row.home_score,
         ))

@@ -1,7 +1,7 @@
 import pytest
 
-from nhl_pipeline.config import Settings
-from nhl_pipeline.seasons import SeasonValidationError, generate_season_ids, validate_season_coverage
+from config import Settings
+from ingestion.seasons import SeasonValidationError, generate_season_ids, validate_season_coverage
 
 
 def test_generate_season_ids_is_inclusive_and_gap_free():

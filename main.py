@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from .config import Settings
-from .pipeline import backfill, load_seed, refresh
+from config import Settings
+from ingestion.pipeline import backfill, load_seed, refresh
 
 
 def main() -> None:

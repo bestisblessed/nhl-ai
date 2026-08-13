@@ -3,8 +3,8 @@ from datetime import date
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 
-from nhl_pipeline.db import create_schema
-from nhl_pipeline.models import (
+from storage.db import create_schema
+from storage.models import (
     Base,
     Game,
     PipelineRun,

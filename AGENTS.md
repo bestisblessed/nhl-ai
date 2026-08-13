@@ -1,5 +1,7 @@
 # NHL Pipeline File Guide
 
+The package is organized by responsibility: `ingestion/` contains source retrieval and run orchestration, `storage/` contains database code, and `utils/` contains shared low-level helpers.
+
 ## Project and deployment files
 
 - `COMMANDS.md` — Documents the shell commands used to install, test, run, and operate the project.
@@ -8,34 +10,38 @@
 - `Dockerfile` — Builds the Python application container and starts the FastAPI server.
 - `docker-compose.yml` — Runs the FastAPI service alongside PostgreSQL.
 
-## Core package files
+## Root-level application files
 
-- `nhl_pipeline/__init__.py` — Exposes the main public client, seed importer, and skater-ingestion classes.
-- `nhl_pipeline/__main__.py` — Provides the command-line interface for `seed`, `backfill`, and `refresh`.
-- `nhl_pipeline/config.py` — Loads environment configuration and validates season IDs, database settings, and refresh parameters.
-- `nhl_pipeline/db.py` — Creates the SQLAlchemy database engine, schema, and transaction-scoped sessions.
-- `nhl_pipeline/models.py` — Defines the SQLAlchemy database tables and relationships for seasons, players, games, teams, rosters, standings, and pipeline runs.
-- `nhl_pipeline/seasons.py` — Generates contiguous season IDs and rejects missing or malformed seasons.
-- `nhl_pipeline/records.py` — Defines lightweight dataclasses used to represent parsed NHL API records before database persistence.
+- `config.py` — Loads environment configuration and validates season IDs, database settings, and refresh parameters.
+- `main.py` — Provides the command-line interface for `seed`, `backfill`, and `refresh`.
 
-## HTTP and API clients
+### `ingestion/`
 
-- `nhl_pipeline/client.py` — Shared NHL HTTP client with URL encoding, timeouts, retries, exponential backoff, response metadata, SHA-256 hashes, and optional caching.
-- `nhl_pipeline/_http.py` — Compatibility adapter that normalizes responses from the shared NHL client for endpoint modules.
-- `nhl_pipeline/stats.py` — Provides reusable NHL Stats REST pagination, numeric conversion, and season-filter helpers.
+- `client.py` — Shared NHL HTTP client.
+- `seed.py` — Supplied CSV importer.
+- `skaters.py` — Skater and TOI ingestion.
+- `games.py` — Schedule and score ingestion.
+- `teams.py` — Team-season and team-game ingestion.
+- `rosters.py` — Current and historical roster ingestion.
+- `standings.py` — Dated standings ingestion.
+- `seasons.py` — Contiguous season generation and validation.
+- `records.py` — Parsed endpoint DTOs.
+- `pipeline.py` — End-to-end ingestion orchestration.
 
-## Data import and ingestion
+### `storage/`
 
-- `nhl_pipeline/seed.py` — Reads the supplied 24-column CSV while preserving positional blank columns, handling literal `None` values, validating the 2022-23 season, and rejecting duplicate players.
-- `nhl_pipeline/skaters.py` — Fetches and normalizes skater season totals, TOI/shifts, and game-level skater statistics.
-- `nhl_pipeline/game_team.py` — Retrieves schedules, games, scores, team game logs, and team-season summaries.
-- `nhl_pipeline/rosters_standings.py` — Retrieves current/historical rosters and dated standings snapshots.
-- `nhl_pipeline/persistence.py` — Converts seed/API records into idempotent SQLAlchemy upserts.
-- `nhl_pipeline/pipeline.py` — Acts as the main orchestration layer for seed loading, historical backfills, and daily refreshes.
+- `db.py` — SQLAlchemy engine, schema creation, and transaction sessions.
+- `models.py` — SQLAlchemy database tables.
+- `persistence.py` — Idempotent database upserts.
+
+### `utils/`
+
+- `http.py` — Compatibility adapter for client responses.
+- `stats.py` — NHL Stats REST pagination and numeric helpers.
 
 ## API service
 
-- `nhl_pipeline/api.py` — Creates the FastAPI application and exposes routes for goal leaders, penalty rates, team rankings, multi-team players, rosters, health, and pipeline status.
+- `api/routes.py` — Creates the FastAPI application and exposes routes for goal leaders, penalty rates, team rankings, multi-team players, rosters, health, and pipeline status.
 
 ## Tests
 
@@ -50,12 +56,12 @@
 ## Main execution flow
 
 ```text
-__main__.py
-    → pipeline.py
-        → client.py / skaters.py / game_team.py / rosters_standings.py
-            → persistence.py
-                → models.py / db.py
+main.py
+    → ingestion/pipeline.py
+        → ingestion/client.py / skaters.py / games.py / teams.py / rosters.py / standings.py
+            → storage/persistence.py
+                → storage/models.py / storage/db.py
                     → PostgreSQL or SQLite
 ```
 
-One important caveat: `rosters_standings.py` contains the roster and standings ingestion logic, but those records are not yet fully wired into `pipeline.py`'s database persistence path.
+Current caveat: roster and standings parsing is organized and tested, but those records still need to be wired into the main database persistence path.

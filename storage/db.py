@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .config import Settings, get_settings
+from config import Settings, get_settings
 from .models import Base
 
 

@@ -77,7 +77,13 @@ class NHLHTTPClient:
         self.cache_put = cache_put
 
     def build_url(self, path: str, params: Mapping[str, Any] | None = None) -> str:
-        url = urljoin(self.base_url, path.lstrip("/"))
+        clean_path = path.lstrip("/")
+        # Endpoint modules may pass an absolute Stats REST path while this
+        # client is already rooted at `/stats/rest/en/`.
+        if clean_path.startswith("stats/rest/en/") and self.base_url.endswith("/stats/rest/en/"):
+            url = urljoin(self.base_url, "/" + clean_path)
+        else:
+            url = urljoin(self.base_url, clean_path)
         if params:
             query = urlencode([(key, _query_value(value)) for key, value in params.items()])
             url = f"{url}?{query}"

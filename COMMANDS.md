@@ -35,7 +35,7 @@ python -m pip install -e '.[api,test]'
 
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/nhl-pyc \
-python -m compileall -q nhl_pipeline tests
+python -m compileall -q ingestion storage utils api config.py main.py tests
 ```
 
 7. Run the full test suite:
@@ -49,7 +49,7 @@ python -m pytest tests
 ```bash
 SEED_CSV_PATH=data/data_dump.csv \
 DATABASE_URL=sqlite:////tmp/nhl-ai-test.db \
-python -m nhl_pipeline backfill --offline-seed-only
+python main.py backfill --offline-seed-only
 ```
 
 Expected result:
@@ -61,13 +61,13 @@ Expected result:
 9. Run the seed-only CLI command:
 
 ```bash
-python -m nhl_pipeline seed
+python main.py seed
 ```
 
 10. Run the complete historical backfill:
 
 ```bash
-python -m nhl_pipeline backfill
+python main.py backfill
 ```
 
 This loads:
@@ -81,13 +81,13 @@ This loads:
 11. Run the daily refresh:
 
 ```bash
-python -m nhl_pipeline refresh
+python main.py refresh
 ```
 
 12. Start the API directly:
 
 ```bash
-uvicorn nhl_pipeline.api:app \
+uvicorn api.routes:app \
   --host 0.0.0.0 \
   --port 8000 \
   --reload
