@@ -4,7 +4,7 @@ This implementation keeps every contiguous regular season from the supplied 2022
 
 ## Run locally
 
-```bash
+```ba
 ./run_docker_compose.sh start
 ./refresh.sh
 ```
@@ -250,24 +250,46 @@ curl http://localhost:8000/pipeline/status
 }
 ```
 
-## Struggles and tradeoffs
+## Challenges and Tradeoffs
+### Reconciling the supplied CSV with the NHL APIs
+The supplied CSV contains 2022-23 player-season aggregates, but several analyst questions require data that is not present in that file. Team goals and shots require game-level team statistics, while standings and current rosters require separate NHL endpoints.
+I retained the supplied CSV as the deterministic and reproducible seed. Additional NHL data is normalized into related tables without changing the meaning of the original seed records.
 
-- The supplied CSV contains player-season aggregates but no game-level team facts. I preserved that file as the reproducible offline seed and used NHL team game reports for accurate team goals and shots rankings.
-- NHL sources expose related datasets through different endpoints and shapes. I normalized them behind one HTTP client and explicit record parsers, then validated pagination and expected totals before persistence.
-- Current rosters and standings are mutable. Dated snapshot tables preserve what the pipeline observed while keeping the analyst endpoints simple.
-- A daily job must tolerate corrections and missed runs without rebuilding all history. The refresh overlaps recent dates, extends its recovery window after a missed run, caps that recovery, and uses idempotent keys.
-- The upcoming configured season can legitimately be empty before regular-season games exist. Validation permits that state but treats an empty response after final games exist as a failure.
+### Correctly calculating penalties per minute
+Penalty minutes are not directly comparable without accounting for playing time. I converted time on ice into a consistent total-minute value and excluded players with zero recorded time on ice to prevent division-by-zero errors.
+I also added a `min_games` filter so analysts can reduce small-sample outliers when interpreting the result.
+
+
+
+## AI Usage Disclosure
+I used OpenAI Codex as a development assistant during this project. I used Codex to:
+- Explore implementation approaches and divide the assignment into manageable milestones.
+- Draft portions of the ingestion, persistence, FastAPI, test, Docker, automation, and documentation code.
+- Identify edge cases involving pagination, idempotency, incomplete responses, season boundaries, and daily corrections.
+- Assist with test generation, error diagnosis, command-line verification, and final review of the repository against the assignment requirements.
+
+### Suggestions I Accepted
+I accepted suggestions that aligned with the assignment and that I could independently verify, including:
+- Separating ingestion, persistence, API, and configuration responsibilities.
+- Using NHL IDs and composite keys to support deterministic, idempotent upserts.
+- Validating the supplied CSV's shape, duplicate records, pagination totals, and season continuity.
+- Recording pipeline-run status and using an overlapping daily refresh window for operational robustness.
+- Testing the complete seed-to-database-to-FastAPI path rather than testing each layer only in isolation.
+
+### Suggestions I Modified
+I modified AI-generated suggestions when they were broader than the assignment or did not match the available data. For example:
+- I retained the supplied CSV as the deterministic seed instead of making initial data availability depend entirely on live NHL requests.
+- I adapted suggested data models to distinguish season aggregates, game-level facts, and dated roster and standings snapshots.
+- I kept the existing focused module boundaries while rejecting broader reorganizations that would have made the take-home harder to explain.
+- I revised generated tests and documentation to match actual NHL payloads and verified endpoint responses.
+
+### Suggestions I Rejected
+I rejected suggestions that introduced unnecessary scope, relied on unsupported data sources, or could not be validated. Examples included:
+- Features unrelated to the analyst questions in the assignment.
+- Treating comma-separated player team abbreviations as a reliable source for team goals and shots.
+- Silently accepting partial NHL responses.
+- Adding generalized abstractions that were not used by the requested workflow.
+- Committing credentials or making the submitted project depend on access to a private hosted environment.
 
 ## Estimated time spent
-
-Approximately 15 hours, including data exploration, implementation, Docker and managed PostgreSQL setup, testing, documentation, and verification.
-
-## AI usage disclosure
-
-I used OpenAI Codex as a coding assistant for repository exploration, implementation suggestions, test generation, debugging, documentation drafting, and command-line verification.
-
-- **Accepted:** focused suggestions for separating ingestion, persistence, and API responsibilities; adding idempotent composite keys; validating pagination; and testing the seed-to-API vertical slice. These matched the assignment's reproducibility and robustness goals.
-- **Modified:** generated code and documentation were adjusted to the actual NHL payloads, supplied CSV semantics, existing module boundaries, PostgreSQL configuration, and observed endpoint results. I kept the final design narrower than several broader architectural suggestions.
-- **Rejected:** speculative abstractions, unrelated refactors, unsupported data-source fallbacks, and features that did not directly help answer the analyst questions. I also independently ran the test suite, Docker checks, and live data checks rather than treating generated output as proof.
-
-All final implementation decisions, validation results, and submitted content were reviewed by me.
+Approximately 15-20 hours, including data exploration, implementation, Docker and managed PostgreSQL setup, testing, documentation, and verification.
