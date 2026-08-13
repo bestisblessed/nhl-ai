@@ -1,11 +1,16 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from ingestion.records import RosterRecord, ScoreRecord, StandingsRecord
+from ingestion.records import GameRecord, RosterRecord, ScoreRecord, StandingsRecord
 from storage.models import Base, Game, Player, RosterSnapshot, StandingsSnapshot
-from storage.persistence import upsert_roster_rows, upsert_score_rows, upsert_standings_rows
+from storage.persistence import (
+    upsert_games,
+    upsert_roster_rows,
+    upsert_score_rows,
+    upsert_standings_rows,
+)
 
 
 def _score(*, home_score: int) -> ScoreRecord:
@@ -66,6 +71,49 @@ def _roster(*, sweater_number: int) -> RosterRecord:
         weight_pounds=191,
         source_season_id=None,
     )
+
+
+def _game(*, eastern_start_time: str | None) -> GameRecord:
+    return GameRecord(
+        game_id=2024020001,
+        season_id=20242025,
+        game_type_id=2,
+        game_date="2024-10-04",
+        start_time_local=eastern_start_time,
+        game_number=1,
+        schedule_state_id=1,
+        state_id=7,
+        home_team_id=7,
+        visiting_team_id=1,
+        home_score=1,
+        visiting_score=4,
+        period=3,
+    )
+
+
+def test_game_upsert_converts_naive_eastern_start_time_to_utc():
+    """Stats REST's ``easternStartTime`` has no offset; it must be interpreted
+    as America/New_York, not stored verbatim as if it were already UTC."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        assert upsert_games(session, [_game(eastern_start_time="2024-10-04T19:00:00")]) == 1
+        session.commit()
+
+        game = session.get(Game, 2024020001)
+        assert game is not None
+        # 7pm EDT (UTC-4 in October) is 11pm UTC, not 7pm UTC. SQLite drops
+        # tzinfo on round-trip, so compare the naive wall-clock value.
+        assert game.start_time_utc.replace(tzinfo=UTC) == datetime(2024, 10, 4, 23, 0, tzinfo=UTC)
+
+
+def test_game_upsert_handles_missing_start_time():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        assert upsert_games(session, [_game(eastern_start_time=None)]) == 1
+        session.commit()
+        assert session.get(Game, 2024020001).start_time_utc is None
 
 
 def test_score_upsert_updates_existing_game_without_erasing_schedule_metadata():

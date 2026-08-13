@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -68,7 +69,7 @@ def upsert_games(session: Session, rows: Iterable[GameRecord]) -> int:
             raise ValueError(f"game record {row.game_id} is missing game_date")
         session.merge(Game(
             game_id=row.game_id, season_id=row.season_id, game_type_id=row.game_type_id,
-            game_date=date.fromisoformat(row.game_date), start_time_utc=_datetime(row.start_time_local),
+            game_date=date.fromisoformat(row.game_date), start_time_utc=_eastern_to_utc(row.start_time_local),
             away_team_id=row.visiting_team_id, home_team_id=row.home_team_id,
             away_goals=row.visiting_score, home_goals=row.home_score,
         ))
@@ -279,3 +280,18 @@ def _datetime(value: str | None):
         return None
     from datetime import datetime
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _eastern_to_utc(value: str | None) -> datetime | None:
+    """Convert Stats REST's naive ``easternStartTime`` into an aware UTC value.
+
+    The Stats REST ``game`` report has no genuine UTC start time, only a
+    naive wall-clock timestamp in America/New_York (no offset, no ``Z``).
+    Feeding that string straight into a UTC-labeled column would silently
+    record the wrong instant (and sometimes the wrong calendar day) for
+    every backfilled game.
+    """
+    if not value:
+        return None
+    local = datetime.fromisoformat(value).replace(tzinfo=ZoneInfo("America/New_York"))
+    return local.astimezone(UTC)
