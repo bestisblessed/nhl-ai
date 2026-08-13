@@ -88,9 +88,18 @@ jobs:
 
           try:
               settings = Settings(database_url=os.environ["DATABASE_URL"])
+              # A merely-started backfill still leaves `seasons` rows behind
+              # (they are registered before any season is actually fetched),
+              # so checking for their mere existence would let a run that died
+              # partway through the season loop look "initialized" forever and
+              # silently strand the unprocessed seasons. Require a `backfill`
+              # pipeline run that actually finished successfully instead.
               with make_engine(settings).connect() as connection:
                   initialized = connection.execute(
-                      text("SELECT 1 FROM seasons LIMIT 1")
+                      text(
+                          "SELECT 1 FROM pipeline_runs "
+                          "WHERE command = 'backfill' AND status = 'succeeded' LIMIT 1"
+                      )
                   ).first() is not None
           except SQLAlchemyError:
               initialized = False
@@ -105,7 +114,7 @@ jobs:
       - name: Run initial managed database backfill
         if: steps.database_state.outputs.initialized != 'true'
         run: |
-          echo "Managed database is empty; running the one-time contiguous backfill."
+          echo "Managed database has no successful backfill run yet; running the one-time contiguous backfill."
           python main.py backfill
 
       - name: Run incremental refresh

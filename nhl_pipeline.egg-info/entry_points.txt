@@ -1,0 +1,2 @@
+[console_scripts]
+nhl-pipeline = main:main
